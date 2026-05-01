@@ -45,6 +45,17 @@ UA = (
 
 IDF_DEPTS = {"75", "77", "78", "91", "92", "93", "94", "95"}
 
+# Modeles 2 places a exclure (quadricycles, citadines biplaces)
+MODELES_2_PLACES = (
+    "ami",          # Citroen AMI (quadricycle)
+    "fortwo",       # Smart Fortwo
+    "twizy",        # Renault Twizy
+    "mia",          # Mia electric
+)
+
+# Bornes de coherence (URL: yearMin=2016)
+ANNEE_MIN = 2016
+
 
 # ---------------------------------------------------------------------------
 # Modele
@@ -67,6 +78,11 @@ class Listing:
         if self.kilometrage is not None and self.kilometrage > 160_000:
             return False
         if self.places is not None and self.places < 4:
+            return False
+        if self.annee is not None and self.annee < ANNEE_MIN:
+            return False
+        modele_lc = self.modele.lower()
+        if any(m in modele_lc for m in MODELES_2_PLACES):
             return False
         if (
             self.carburant
@@ -163,7 +179,23 @@ def parse_next_data(html: str) -> list[Listing]:
         version = d.get("version") or d.get("trim") or ""
         modele = " ".join(s for s in [str(brand), str(model), str(version)] if s).strip()
 
-        annee = _to_int(d.get("year") or d.get("vehicleYear") or d.get("registrationYear"))
+        # priorite: champs explicites annee/immatriculation, en validant la plage
+        annee = None
+        for k in ("vehicleYear", "registrationYear", "year", "modelYear", "firstRegistrationYear"):
+            v = _to_int(d.get(k))
+            if v and 1990 <= v <= 2030:
+                annee = v
+                break
+        # date d'immatriculation type "2018-05" ou "05/2018"
+        if annee is None:
+            for k in ("registrationDate", "firstRegistrationDate", "vehicleRegistrationDate"):
+                s = d.get(k)
+                if not s:
+                    continue
+                m = re.search(r"(19|20)\d{2}", str(s))
+                if m:
+                    annee = int(m.group(0))
+                    break
         km = _to_int(d.get("mileage") or d.get("vehicleMileage"))
         prix = _to_int(d.get("customerPrice") or d.get("price"))
         carburant = str(d.get("energy") or d.get("fuel") or d.get("fuelType") or "")
@@ -335,9 +367,9 @@ def afficher(listings: Iterable[Listing]) -> None:
         return
 
     print(f"{len(listings)} annonces correspondantes (meilleure -> moins bonne):\n")
-    fmt = "{:<4} {:<35} {:>4} {:>9} {:>7} {:>3} {:<20} {}"
-    print(fmt.format("#", "Modele", "An", "Km", "Prix", "Dpt", "Vendeur", "URL"))
-    print("-" * 140)
+    fmt = "{:<4} {:<35} {:>4} {:>9} {:>7} {:>3} {:<10} {:<18} {}"
+    print(fmt.format("#", "Modele", "An", "Km", "Prix", "Dpt", "Carbu", "Vendeur", "URL"))
+    print("-" * 160)
     for i, l in enumerate(listings, 1):
         print(
             fmt.format(
@@ -347,7 +379,8 @@ def afficher(listings: Iterable[Listing]) -> None:
                 f"{l.kilometrage:,}".replace(",", " ") if l.kilometrage else "?",
                 f"{l.prix} €" if l.prix else "?",
                 l.departement or "?",
-                (l.vendeur[:18] + "..") if len(l.vendeur) > 20 else l.vendeur,
+                (l.carburant[:10]) if l.carburant else "?",
+                (l.vendeur[:16] + "..") if len(l.vendeur) > 18 else l.vendeur,
                 l.url,
             )
         )
