@@ -52,6 +52,9 @@ IDF_DEPTS = {"75", "77", "78", "91", "92", "93", "94", "95"}
 MODELES_2_PLACES = ("ami", "fortwo", "twizy", "mia")
 
 ANNEE_MIN = 2016
+ANNEE_MAX = 2025          # >2025 = vehicule neuf / annonce LOA-LLD a exclure
+PRIX_MIN = 1000           # < 1000 EUR = mensualite leasing, pas un prix d'achat
+PRIX_MAX = 5700
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +79,9 @@ class Listing:
             return False
         if self.places is not None and self.places < 4:
             return False
-        if self.annee is not None and self.annee < ANNEE_MIN:
+        if self.annee is not None and not (ANNEE_MIN <= self.annee <= ANNEE_MAX):
+            return False
+        if self.prix is not None and not (PRIX_MIN <= self.prix <= PRIX_MAX):
             return False
         modele_lc = self.modele.lower()
         if any(m in modele_lc for m in MODELES_2_PLACES):
@@ -111,13 +116,20 @@ def _to_int(v) -> Optional[int]:
 
 
 def _attrs_to_dict(ad: dict) -> dict:
-    """leboncoin stocke les caracteristiques voitures dans `attributes` (liste)."""
+    """leboncoin stocke les caracteristiques voitures dans `attributes` (liste).
+
+    On privilegie `value_label` (lisible: "Diesel", "120 000 km", "Essence") plutot
+    que `value` qui est souvent un ID numerique pour les enums (fuel, gearbox...).
+    """
     out: dict = {}
     for a in ad.get("attributes") or []:
         k = a.get("key")
         if not k:
             continue
-        out[k] = a.get("value") or a.get("value_label")
+        v = a.get("value_label")
+        if v is None or v == "":
+            v = a.get("value")
+        out[k] = v
     return out
 
 
